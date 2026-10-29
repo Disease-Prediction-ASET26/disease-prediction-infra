@@ -1,0 +1,11 @@
+tenancy_ocid        = "ocid1.tenancy.oc1..replace-me"
+compartment_ocid    = "ocid1.compartment.oc1..replace-me"
+region              = "replace-with-home-region"
+oci_profile         = "DEFAULT"
+image_ocid          = "ocid1.image.oc1..replace-with-ubuntu-24.04-arm64-image-for-this-region"
+ssh_public_key_path = "C:/Users/your-user/.ssh/disease-prediction-oci.pub"
+admin_ssh_cidr      = "203.0.113.10/32"
+
+# Check the tenancy's existing VCN CIDRs before using these defaults.
+# vcn_cidr    = "10.42.0.0/16"
+# subnet_cidr = "10.42.10.0/24"
