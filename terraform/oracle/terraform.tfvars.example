@@ -1,13 +1,21 @@
-tenancy_ocid        = "ocid1.tenancy.oc1..replace-me"
-compartment_ocid    = "ocid1.compartment.oc1..replace-me"
-region              = "replace-with-home-region"
-oci_profile         = "DEFAULT"
-# Optional; unset to use the first availability domain returned by OCI.
-# availability_domain = "YOUR-AVAILABILITY-DOMAIN"
-image_ocid          = "ocid1.image.oc1..replace-with-ubuntu-24.04-arm64-image-for-this-region"
-ssh_public_key_path = "C:/Users/your-user/.ssh/disease-prediction-oci.pub"
-admin_ssh_cidr      = "REPLACE_WITH_YOUR_PUBLIC_IP/32"
+tenancy_ocid           = "ocid1.tenancy.oc1..replace-me"
+compartment_ocid       = "ocid1.tenancy.oc1..replace-me"
+vcn_ocid               = "ocid1.vcn.oc1..replace-me"
+subnet_ocid            = "ocid1.subnet.oc1..replace-me"
+instance_ocid          = "ocid1.instance.oc1..replace-me"
+region                 = "eu-frankfurt-1"
+oci_profile            = "DEFAULT"
+availability_domain    = "REPLACE_WITH_EXACT_TENANCY_AD_NAME"
+image_ocid             = "ocid1.image.oc1..replace-with-arm64-linux-image-in-this-region"
+ssh_public_key_path    = "C:/Users/your-user/.ssh/disease-prediction-oci.key.pub"
+admin_ssh_cidr         = "REPLACE_WITH_YOUR_PUBLIC_IP/32"
+vcn_dns_label          = "REPLACE_WITH_EXISTING_VCN_DNS_LABEL"
+subnet_dns_label       = "REPLACE_WITH_EXISTING_SUBNET_DNS_LABEL"
+instance_hostname_label = "REPLACE_WITH_EXISTING_VNIC_HOSTNAME_LABEL"
 
-# Check the tenancy's existing VCN CIDRs before using these defaults.
-# vcn_cidr    = "10.42.0.0/16"
-# subnet_cidr = "10.42.10.0/24"
+# The imported VM currently uses the complete 200 GB Always Free volume allowance.
+boot_volume_size_gb = 200
+
+# Check all existing VCN CIDRs before changing these values.
+vcn_cidr    = "10.0.0.0/16"
+subnet_cidr = "10.0.0.0/24"

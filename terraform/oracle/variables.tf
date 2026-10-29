@@ -1,15 +1,15 @@
 variable "tenancy_ocid" {
-  description = "OCI tenancy OCID."
+  description = "OCI tenancy OCID used for home-region and availability-domain checks."
   type        = string
 }
 
 variable "compartment_ocid" {
-  description = "Compartment in which this project creates its OCI resources."
+  description = "Compartment containing the existing k3s resources."
   type        = string
 }
 
 variable "region" {
-  description = "OCI home region for this project."
+  description = "OCI region for the existing cluster; must be the tenancy home region for Always Free A1 compute."
   type        = string
 }
 
@@ -19,20 +19,33 @@ variable "oci_profile" {
   default     = "DEFAULT"
 }
 
-variable "availability_domain" {
-  description = "Optional OCI availability domain name. Defaults to the first domain returned for the tenancy."
+variable "vcn_ocid" {
+  description = "OCID of the existing VCN to import into Terraform."
   type        = string
-  default     = null
-  nullable    = true
+}
+
+variable "subnet_ocid" {
+  description = "OCID of the existing public subnet to import into Terraform."
+  type        = string
+}
+
+variable "instance_ocid" {
+  description = "OCID of the existing A1 instance to import into Terraform."
+  type        = string
+}
+
+variable "availability_domain" {
+  description = "Exact tenancy-specific availability-domain name for the existing VM."
+  type        = string
 }
 
 variable "image_ocid" {
-  description = "Region-specific Ubuntu 24.04 ARM64 platform image OCID; pin this value."
+  description = "Region-specific Always Free-eligible ARM64 Linux image OCID used by this VM."
   type        = string
 }
 
 variable "ssh_public_key_path" {
-  description = "Path to a dedicated SSH public key file. The private key is never read by Terraform."
+  description = "Path to the VM's SSH public key; the private key is never read by Terraform."
   type        = string
 }
 
@@ -47,36 +60,51 @@ variable "admin_ssh_cidr" {
 }
 
 variable "project_name" {
-  description = "Lowercase project prefix used for OCI resource names and DNS labels."
+  description = "Lowercase prefix used for Terraform-managed OCI resource names."
   type        = string
   default     = "disease-prediction"
 }
 
 variable "vcn_cidr" {
-  description = "Non-overlapping private IPv4 range for the new project VCN. Check existing VCNs before use."
+  description = "CIDR block of the existing VCN; check for overlap before changing it."
   type        = string
-  default     = "10.42.0.0/16"
+  default     = "10.0.0.0/16"
 }
 
 variable "subnet_cidr" {
-  description = "Public subnet range inside vcn_cidr. Check that it is contained by vcn_cidr and does not overlap existing networks."
+  description = "CIDR block of the existing public subnet."
   type        = string
-  default     = "10.42.10.0/24"
+  default     = "10.0.0.0/24"
+}
+
+variable "vcn_dns_label" {
+  description = "Immutable DNS label already assigned to the existing VCN."
+  type        = string
+}
+
+variable "subnet_dns_label" {
+  description = "Immutable DNS label already assigned to the existing public subnet."
+  type        = string
+}
+
+variable "instance_hostname_label" {
+  description = "Hostname label already assigned to the instance VNIC."
+  type        = string
 }
 
 variable "boot_volume_size_gb" {
-  description = "Boot volume size in GB. The default 50 GB is within the current Always Free block-volume allowance."
+  description = "Boot-volume size in GB; all boot and block volumes combined must stay within 200 GB for Always Free."
   type        = number
   default     = 50
 
   validation {
     condition     = var.boot_volume_size_gb >= 50 && var.boot_volume_size_gb <= 200
-    error_message = "Choose a boot volume between 50 and 200 GB, after checking the tenancy's total block-volume usage."
+    error_message = "Choose a boot volume between 50 and 200 GB, after checking total home-region volume usage."
   }
 }
 
 variable "k3s_version" {
-  description = "Pinned K3s release installed on first boot. Upgrade this deliberately after reviewing release notes."
+  description = "Pinned K3s release installed by cloud-init on first boot."
   type        = string
   default     = "v1.37.1+k3s1"
 }
