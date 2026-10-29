@@ -33,7 +33,9 @@ cd terraform/oracle
 Copy-Item terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` with the tenancy, compartment, region, profile, image OCID, SSH public key path and trusted SSH CIDR. Use `/32` for a fixed administrator public IP when possible. The example file is safe to commit; `terraform.tfvars` is ignored.
+Edit `terraform.tfvars` with the tenancy, compartment, region, profile, image OCID, SSH public key path and trusted SSH CIDR. The SSH CIDR example is an invalid placeholder; replace it with your public IP and `/32` before planning. The example file is safe to commit; `terraform.tfvars` is ignored.
+
+If A1 capacity is unavailable in the first availability domain, set `availability_domain` to another domain shown in the OCI Console.
 
 Check all existing VCN CIDRs before using the example `10.42.0.0/16` and `10.42.10.0/24`. If the administrator's public IP changes, update `admin_ssh_cidr` and apply the security-list change before attempting SSH again.
 
