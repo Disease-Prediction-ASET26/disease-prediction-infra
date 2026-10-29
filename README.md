@@ -1,45 +1,89 @@
-# Disease Prediction OCI infrastructure
+# Oracle k3s infrastructure
 
-Terraform manages the Oracle Cloud Infrastructure (OCI) VM, its VCN and the public-subnet access rules. Kubernetes application configuration belongs in `disease-prediction-gitops`.
+This repository uses Terraform to manage the Oracle Cloud Infrastructure (OCI)
+VM and network for the disease-prediction project. Kubernetes applications and
+cluster configuration live in `disease-prediction-gitops`.
 
-## Inventory checked on 2026-10-29
+## Current setup
 
-- Tenancy home region: `eu-frankfurt-1`; it is the only subscribed region.
-- One `VM.Standard.A1.Flex` instance in `XUCP:EU-FRANKFURT-1-AD-2`, configured for 2 OCPUs and 12 GB RAM.
-- The instance uses Oracle Linux 9.8 ARM64 and a 200 GB boot volume at 10 VPUs/GB.
-- No separate block volumes; one full boot-volume backup is retained for recovery (Always Free includes up to five backups).
-- Existing VCN: `10.0.0.0/16`; public subnet: `10.0.0.0/24`; private subnet: `10.0.1.0/24`.
-- The public subnet had a public IP and a default security list that allowed SSH from `0.0.0.0/0`, but no internet gateway or route to it.
+Checked on 2026-10-29:
 
-OCI's Always Free A1 allowance is 2 OCPUs and 12 GB RAM in the tenancy home region. The 200 GB boot volume is within the 200 GB combined boot/block-volume allowance and uses all of it. Keep the instance in Frankfurt and don't add boot or block volumes unless total usage is checked first. OCI also includes 10 TB/month outbound transfer. These limits are account-wide; review Limits, Quotas and Usage before adding resources. [Always Free limits](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
+- One ARM64 `VM.Standard.A1.Flex` VM in Frankfurt AD-2, with 2 OCPUs and 12 GB
+  RAM.
+- Oracle Linux 9.8 with K3s `v1.37.1+k3s1`.
+- One 200 GB boot volume and one full boot-volume backup.
+- The public subnet allows SSH only from `admin_ssh_cidr`. Kubernetes and
+  application ports are closed to the internet.
 
-## What Terraform manages
+The VM uses the Always Free A1 compute and block storage limits: 2 OCPUs, 12 GB
+RAM, 200 GB of combined boot and block storage, and up to five volume backups.
+These limits apply across the tenancy. Check **Limits, Quotas and Usage** before
+adding resources.
+[OCI Always Free limits](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
 
-- Imports the existing VCN, public subnet and VM into remote state.
-- Adds an internet gateway and a dedicated public-subnet route table. The private subnet remains without an internet route.
-- Attaches a public security list that permits SSH only from `admin_ssh_cidr`; it does not open Kubernetes, NodePort, database or application ports.
-- Removes the broad SSH rule from the VCN's default security list.
-- Checks the tenancy home region and exact availability-domain name before provisioning.
-- Prevents Terraform from destroying the imported VCN, public subnet or VM.
+## Architecture
 
-The VM's original metadata contains an SSH public key but no cloud-init `user_data`. Terraform ignores changes to that one-time field on the imported VM; it won't rerun cloud-init. The imported VM was bootstrapped in place with the pinned K3s release and server options. New VMs created by this configuration receive the same bootstrap through cloud-init.
+Each diagram shows one view. Dashed arrows show work planned for later.
 
-The VM's `firewalld` needs a narrow TCP 10250 rule from the default K3s pod CIDR (`10.42.0.0/16`) so the bundled metrics server can reach kubelet. That rule is included in cloud-init for new VMs and kept local to the host firewall; the OCI security list does not expose it publicly.
+### Repositories
 
-## Local setup
+```mermaid
+flowchart LR
+  infra[Infrastructure repo<br/>Terraform] --> oci[OCI VM and network]
+  oci --> cluster[Single-node K3s]
+  gitops[GitOps repo<br/>Argo CD and app config] -. bootstrap later .-> cluster
+```
 
-Use Terraform 1.17.1, matching CI. The configuration accepts Terraform 1.12 or newer within major version 1. The OCI provider is pinned to 9.11.0 and `.terraform.lock.hcl` is committed so local and CI runs use the same provider build. Configure an OCI API signing-key profile locally; Terraform and the OCI backend use that profile, so no API private key is stored in this repository.
+### Terraform provisioning
 
-Copy the example file and fill in the tenancy and compartment OCIDs, current Oracle Linux image OCID, exact AD name, existing VCN/subnet DNS labels and CIDRs, and SSH CIDR:
+```mermaid
+flowchart LR
+  config[Terraform files] --> cli[Terraform CLI<br/>local OCI profile]
+  cli --> api[OCI API] --> resources[VCN, subnet, and VM]
+  cli -->|state read and write| state[(Object Storage<br/>remote state)]
+```
+
+### Cluster access
+
+```mermaid
+flowchart LR
+  admin[Admin workstation] -->|SSH from admin CIDR| vm[OCI ARM64 VM<br/>2 OCPU, 12 GB RAM]
+  vm --> cluster[Single-node K3s] --> pods[CoreDNS<br/>local-path<br/>metrics-server]
+  vm --> gateway[Internet gateway] --> internet((Internet))
+  cluster -. later .-> tunnel[Cloudflare Tunnel]
+  domain[Name.com domain<br/>hostname TBD] -. DNS later .-> tunnel
+```
+
+Only SSH from `admin_ssh_cidr` is open to the internet. Argo CD, application workloads,
+the tunnel, and domain records are later work.
+
+## Requirements
+
+- Terraform 1.17.1, matching CI. The OCI provider is pinned to 9.11.0 in
+  `versions.tf` and `.terraform.lock.hcl`.
+- OCI CLI configured with a local `DEFAULT` API signing-key profile.
+- An SSH key pair and your current public IPv4 address.
+
+Terraform uses your local OCI profile. Keep the API private key and SSH private
+key out of this repository.
+
+## Set up a local checkout
+
+Run these commands from the repository root. Copy the example variables file,
+then fill in its values:
 
 ```powershell
 Set-Location terraform/oracle
 Copy-Item terraform.tfvars.example terraform.tfvars
 ```
 
-Use the matching SSH public key path, for example `C:/Users/<user>/.ssh/disease-prediction-oci.key.pub`; the private half stays in the user's `.ssh` directory and is ignored by Git. Replace the example's administrator CIDR with your current public IPv4 `/32`. Update it if your public IP changes.
+Set the exact availability-domain name and an ARM64 Linux image OCID from
+Frankfurt. Set `ssh_public_key_path` to your public key file and
+`admin_ssh_cidr` to your current public IP with `/32`. The VCN, subnet, and VM
+are already in remote state, so their OCIDs are not needed in
+`terraform.tfvars`.
 
-The private, versioned Object Storage bucket `disease-prediction-tfstate` was bootstrapped in the home region. Get its namespace and initialize remote state:
+Initialize Terraform with the existing private, versioned Object Storage bucket:
 
 ```powershell
 $namespace = (oci os ns get | ConvertFrom-Json).data
@@ -51,13 +95,21 @@ terraform init `
   -backend-config="config_file_profile=DEFAULT"
 ```
 
-The bucket is private and versioned. Keep the state bucket; Terraform state and saved plans are sensitive and must stay out of Git. Grant other maintainers least-privilege Object Storage access before they use this backend.
+Keep this state bucket. State and saved plans can contain sensitive values;
+never commit them or `terraform.tfvars`.
 
-## Plan and apply
+## Modify and apply changes
 
-The remote state already contains the VCN, public subnet, and VM, so no import blocks or resource IDs are needed in `terraform.tfvars`. Keep the remote state bucket and never commit state, saved plans, or `terraform.tfvars`.
+Change input values in `terraform.tfvars` and resource settings in the `.tf`
+files. For example, update `admin_ssh_cidr` when your public IP changes. Avoid
+making changes only in the OCI Console; a later Terraform apply may overwrite
+them.
 
-Review the configuration before applying:
+The `k3s_version` input is used by cloud-init on the VM's first boot. Changing
+it does not update a running VM; use the VM replacement steps below to install
+another version.
+
+Run these commands from `terraform/oracle`:
 
 ```powershell
 terraform fmt -check -recursive
@@ -66,27 +118,97 @@ terraform plan -out=infra.tfplan
 terraform show infra.tfplan
 ```
 
-The plan should show no changes when the cloud matches this repository. `prevent_destroy` guards the compute instance, VCN, and public subnet. If a plan proposes an unexpected replacement or destruction, stop and review it before applying. `preserve_boot_volume = false` ensures an intentional VM destroy also removes its boot disk, keeping the 200 GB Always Free volume limit available for a replacement.
-
-Only after reviewing the plan:
+Review the plan before applying it:
 
 ```powershell
 terraform apply infra.tfplan
+Remove-Item infra.tfplan
 ```
 
+When the cloud matches this repository, the plan should show no changes. Stop
+and review unexpected replacements or deletions. The VM, VCN, and public subnet
+have `prevent_destroy` guards.
+
 ## Connect and check K3s
+
+Get the current public IP and connect as `opc`:
 
 ```powershell
 $ip = terraform output -raw instance_public_ip
 ssh -i "$env:USERPROFILE\.ssh\disease-prediction-oci.key" opc@$ip
 ```
 
-The current image's default user is `opc`. On the VM, check whether K3s is already installed:
+On the VM, check cloud-init, K3s, and the node:
 
 ```sh
+sudo cloud-init status --long
 sudo systemctl is-active k3s
 sudo /usr/local/bin/k3s kubectl get nodes
 sudo /usr/local/bin/k3s kubectl get pods -A
 ```
 
-If K3s is absent, check `sudo cloud-init status --long` and `sudo journalctl -u cloud-init --no-pager`. Do not assume a Terraform metadata update reran cloud-init on this imported VM.
+Cloud-init runs when the VM first boots. Editing the cloud-init template does
+not update a running VM.
+
+## Replace the VM
+
+Back up any data you need before a rebuild. The 200 GB boot volume uses the full
+free storage allowance. `preserve_boot_volume = false` deletes that volume when
+Terraform destroys the VM.
+
+1. Temporarily remove `prevent_destroy` from `oci_core_instance.k3s_server`.
+   Keep the VCN and subnet guards.
+2. Create and review a VM-only destroy plan:
+
+   ```powershell
+   terraform plan -destroy -target=oci_core_instance.k3s_server -out=destroy.tfplan
+   terraform show destroy.tfplan
+   ```
+
+   Apply only if the plan contains one action: destroy
+   `oci_core_instance.k3s_server`.
+
+   ```powershell
+   terraform apply destroy.tfplan
+   Remove-Item destroy.tfplan
+   ```
+
+3. Wait until the old boot volume is `TERMINATED`. Restore the VM destroy guard,
+   then run a normal plan and apply to create the replacement.
+
+## Remove the VM or the full stack
+
+To remove only the VM and keep the network, remove
+`oci_core_instance.k3s_server` and its outputs from the Terraform configuration.
+Review a normal plan and apply it only if the VM is the only resource to be
+destroyed. For example:
+
+```powershell
+terraform plan -out=remove-vm.tfplan
+terraform show remove-vm.tfplan
+terraform apply remove-vm.tfplan
+Remove-Item remove-vm.tfplan
+```
+
+If the VM resource remains in the configuration, a later apply will create it
+again.
+
+To destroy the full stack, back up any data you need. Remove the
+`prevent_destroy` guards from the VM, VCN, and public subnet in a reviewed
+teardown change. Create and inspect a saved destroy plan:
+
+```powershell
+terraform plan -destroy -out=destroy.tfplan
+terraform show destroy.tfplan
+terraform apply destroy.tfplan
+Remove-Item destroy.tfplan
+```
+
+Apply only when the plan lists the resources you intend to delete. The Object
+Storage state bucket is outside this configuration; keep it until the teardown
+is complete and you no longer need the state. If the teardown is permanent,
+remove the Terraform resource blocks too, or a later apply will recreate the
+stack.
+
+Keep active boot and block storage at or below 200 GB and volume backups at or
+below five.
