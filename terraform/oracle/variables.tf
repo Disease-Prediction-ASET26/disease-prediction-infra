@@ -19,6 +19,13 @@ variable "oci_profile" {
   default     = "DEFAULT"
 }
 
+variable "availability_domain" {
+  description = "Optional OCI availability domain name. Defaults to the first domain returned for the tenancy."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "image_ocid" {
   description = "Region-specific Ubuntu 24.04 ARM64 platform image OCID; pin this value."
   type        = string

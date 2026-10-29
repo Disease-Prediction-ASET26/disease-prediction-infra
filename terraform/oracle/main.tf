@@ -1,6 +1,7 @@
 locals {
-  vcn_dns_label    = "diseasepred"
-  subnet_dns_label = "k3s"
+  availability_domain = var.availability_domain != null ? var.availability_domain : data.oci_identity_availability_domains.available.availability_domains[0].name
+  vcn_dns_label       = "diseasepred"
+  subnet_dns_label    = "k3s"
 }
 
 resource "oci_core_vcn" "project" {
@@ -70,7 +71,7 @@ resource "oci_core_subnet" "public" {
 
 resource "oci_core_instance" "k3s_server" {
   compartment_id      = var.compartment_ocid
-  availability_domain = data.oci_identity_availability_domains.available.availability_domains[0].name
+  availability_domain = local.availability_domain
   display_name        = "${var.project_name}-k3s"
   shape               = "VM.Standard.A1.Flex"
   freeform_tags       = { project = var.project_name }
