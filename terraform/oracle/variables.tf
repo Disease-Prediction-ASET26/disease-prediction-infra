@@ -19,23 +19,8 @@ variable "oci_profile" {
   default     = "DEFAULT"
 }
 
-variable "vcn_ocid" {
-  description = "OCID of the existing VCN to import into Terraform."
-  type        = string
-}
-
-variable "subnet_ocid" {
-  description = "OCID of the existing public subnet to import into Terraform."
-  type        = string
-}
-
-variable "instance_ocid" {
-  description = "OCID of the existing A1 instance to import into Terraform."
-  type        = string
-}
-
 variable "availability_domain" {
-  description = "Exact tenancy-specific availability-domain name for the existing VM."
+  description = "Exact tenancy-specific availability-domain name for the VM."
   type        = string
 }
 

@@ -5,9 +5,9 @@ Terraform manages the Oracle Cloud Infrastructure (OCI) VM, its VCN and the publ
 ## Inventory checked on 2026-10-29
 
 - Tenancy home region: `eu-frankfurt-1`; it is the only subscribed region.
-- One running `VM.Standard.A1.Flex` instance in `XUCP:EU-FRANKFURT-1-AD-2`, configured for 2 OCPUs and 12 GB RAM.
+- One `VM.Standard.A1.Flex` instance in `XUCP:EU-FRANKFURT-1-AD-2`, configured for 2 OCPUs and 12 GB RAM.
 - The instance uses Oracle Linux 9.8 ARM64 and a 200 GB boot volume at 10 VPUs/GB.
-- No separate block volumes; one boot-volume backup exists (Always Free includes up to five).
+- No separate block volumes; one full boot-volume backup is retained for recovery (Always Free includes up to five backups).
 - Existing VCN: `10.0.0.0/16`; public subnet: `10.0.0.0/24`; private subnet: `10.0.1.0/24`.
 - The public subnet had a public IP and a default security list that allowed SSH from `0.0.0.0/0`, but no internet gateway or route to it.
 
@@ -28,9 +28,9 @@ The VM's `firewalld` needs a narrow TCP 10250 rule from the default K3s pod CIDR
 
 ## Local setup
 
-Terraform 1.12+ and the OCI CLI are required. Configure an OCI API signing-key profile locally; Terraform and the OCI backend use that profile, so no API private key is stored in this repository.
+Use Terraform 1.17.1, matching CI. The configuration accepts Terraform 1.12 or newer within major version 1. The OCI provider is pinned to 9.11.0 and `.terraform.lock.hcl` is committed so local and CI runs use the same provider build. Configure an OCI API signing-key profile locally; Terraform and the OCI backend use that profile, so no API private key is stored in this repository.
 
-Copy the example file and fill in the existing resource IDs, tenancy OCID, compartment OCID, current Oracle Linux image OCID, exact AD name, and SSH CIDR:
+Copy the example file and fill in the tenancy and compartment OCIDs, current Oracle Linux image OCID, exact AD name, existing VCN/subnet DNS labels and CIDRs, and SSH CIDR:
 
 ```powershell
 Set-Location terraform/oracle
@@ -53,9 +53,11 @@ terraform init `
 
 The bucket is private and versioned. Keep the state bucket; Terraform state and saved plans are sensitive and must stay out of Git. Grant other maintainers least-privilege Object Storage access before they use this backend.
 
-## Import and apply
+## Plan and apply
 
-Review the import and network changes before applying:
+The remote state already contains the VCN, public subnet, and VM, so no import blocks or resource IDs are needed in `terraform.tfvars`. Keep the remote state bucket and never commit state, saved plans, or `terraform.tfvars`.
+
+Review the configuration before applying:
 
 ```powershell
 terraform fmt -check -recursive
@@ -64,7 +66,7 @@ terraform plan -out=infra.tfplan
 terraform show infra.tfplan
 ```
 
-The plan should import the existing VM, VCN and public subnet; create the internet gateway, public route table and public security list; and update the subnet/default security list. It must not create, replace or destroy the VM. `prevent_destroy` guards the imported compute and network resources. If the plan proposes an instance replacement, stop and correct the configuration before applying.
+The plan should show no changes when the cloud matches this repository. `prevent_destroy` guards the compute instance, VCN, and public subnet. If a plan proposes an unexpected replacement or destruction, stop and review it before applying. `preserve_boot_volume = false` ensures an intentional VM destroy also removes its boot disk, keeping the 200 GB Always Free volume limit available for a replacement.
 
 Only after reviewing the plan:
 

@@ -9,11 +9,11 @@ output "instance_public_ip" {
 }
 
 output "vcn_id" {
-  description = "OCI VCN OCID created for the project."
+  description = "OCI VCN OCID managed by Terraform."
   value       = oci_core_vcn.project.id
 }
 
 output "subnet_id" {
-  description = "OCI public subnet OCID created for the project."
+  description = "OCI public subnet OCID managed by Terraform."
   value       = oci_core_subnet.public.id
 }
