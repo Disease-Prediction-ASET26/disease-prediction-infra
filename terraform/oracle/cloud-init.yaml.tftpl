@@ -5,6 +5,11 @@ disable_root: true
 
 runcmd:
   - >-
+    firewall-cmd --permanent --zone=public
+    --add-rich-rule='rule family="ipv4" source address="10.42.0.0/16"
+    port port="10250" protocol="tcp" accept'
+  - firewall-cmd --reload
+  - >-
     curl --fail --silent --show-error --location --proto '=https' --tlsv1.2
     https://get.k3s.io --output /tmp/k3s-install.sh
   - >-

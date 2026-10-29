@@ -22,7 +22,9 @@ OCI's Always Free A1 allowance is 2 OCPUs and 12 GB RAM in the tenancy home regi
 - Checks the tenancy home region and exact availability-domain name before provisioning.
 - Prevents Terraform from destroying the imported VCN, public subnet or VM.
 
-The VM's original metadata contains an SSH public key but no cloud-init `user_data`. Terraform ignores changes to that one-time field on the imported VM; it won't rerun cloud-init. Verify K3s after connecting. New VMs created by this configuration receive the pinned K3s cloud-init bootstrap.
+The VM's original metadata contains an SSH public key but no cloud-init `user_data`. Terraform ignores changes to that one-time field on the imported VM; it won't rerun cloud-init. The imported VM was bootstrapped in place with the pinned K3s release and server options. New VMs created by this configuration receive the same bootstrap through cloud-init.
+
+The VM's `firewalld` needs a narrow TCP 10250 rule from the default K3s pod CIDR (`10.42.0.0/16`) so the bundled metrics server can reach kubelet. That rule is included in cloud-init for new VMs and kept local to the host firewall; the OCI security list does not expose it publicly.
 
 ## Local setup
 
@@ -81,8 +83,8 @@ The current image's default user is `opc`. On the VM, check whether K3s is alrea
 
 ```sh
 sudo systemctl is-active k3s
-sudo k3s kubectl get nodes
-sudo k3s kubectl get pods -A
+sudo /usr/local/bin/k3s kubectl get nodes
+sudo /usr/local/bin/k3s kubectl get pods -A
 ```
 
 If K3s is absent, check `sudo cloud-init status --long` and `sudo journalctl -u cloud-init --no-pager`. Do not assume a Terraform metadata update reran cloud-init on this imported VM.
