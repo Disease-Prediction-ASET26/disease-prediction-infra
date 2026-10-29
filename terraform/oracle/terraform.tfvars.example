@@ -1,8 +1,5 @@
 tenancy_ocid           = "ocid1.tenancy.oc1..replace-me"
 compartment_ocid       = "ocid1.tenancy.oc1..replace-me"
-vcn_ocid               = "ocid1.vcn.oc1..replace-me"
-subnet_ocid            = "ocid1.subnet.oc1..replace-me"
-instance_ocid          = "ocid1.instance.oc1..replace-me"
 region                 = "eu-frankfurt-1"
 oci_profile            = "DEFAULT"
 availability_domain    = "REPLACE_WITH_EXACT_TENANCY_AD_NAME"

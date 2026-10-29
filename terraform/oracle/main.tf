@@ -14,21 +14,6 @@ locals {
   ]
 }
 
-import {
-  to = oci_core_vcn.project
-  id = var.vcn_ocid
-}
-
-import {
-  to = oci_core_subnet.public
-  id = var.subnet_ocid
-}
-
-import {
-  to = oci_core_instance.k3s_server
-  id = var.instance_ocid
-}
-
 resource "oci_core_vcn" "project" {
   compartment_id = var.compartment_ocid
   cidr_blocks    = [var.vcn_cidr]
@@ -125,10 +110,11 @@ resource "oci_core_subnet" "public" {
 }
 
 resource "oci_core_instance" "k3s_server" {
-  compartment_id      = var.compartment_ocid
-  availability_domain = var.availability_domain
-  display_name        = "vm"
-  shape               = "VM.Standard.A1.Flex"
+  compartment_id       = var.compartment_ocid
+  availability_domain  = var.availability_domain
+  display_name         = "vm"
+  shape                = "VM.Standard.A1.Flex"
+  preserve_boot_volume = false
 
   shape_config {
     ocpus         = 2
@@ -156,7 +142,6 @@ resource "oci_core_instance" "k3s_server" {
   lifecycle {
     prevent_destroy = true
 
-    # OCI cloud-init user_data only runs at first boot; changing it cannot bootstrap an imported VM.
     ignore_changes = [metadata["user_data"]]
 
     precondition {
