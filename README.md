@@ -60,8 +60,12 @@ the tunnel, and domain records are later work.
 ## Requirements
 
 - Terraform 1.17.1, matching CI. The OCI provider is pinned to 9.11.0 in
-  `versions.tf` and `.terraform.lock.hcl`.
-- OCI CLI configured with a local `DEFAULT` API signing-key profile.
+  `versions.tf` and `.terraform.lock.hcl`. Install Terraform on Linux using the
+  [official guide](https://developer.hashicorp.com/terraform/install), then
+  check it with `terraform version`.
+- OCI CLI installed and configured with a local `DEFAULT` API signing-key
+  profile. Follow the [OCI CLI Linux install guide](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm),
+  then run `oci setup config` and choose the `DEFAULT` profile.
 - An SSH key pair. A public IPv4 address is needed only for temporary SSH
   access before Tailscale is ready.
 
@@ -73,9 +77,9 @@ key out of this repository.
 Run these commands from the repository root. Copy the example variables file,
 then fill in its values:
 
-```powershell
-Set-Location terraform/oracle
-Copy-Item terraform.tfvars.example terraform.tfvars
+```bash
+cd terraform/oracle
+cp terraform.tfvars.example terraform.tfvars
 ```
 
 Set the exact availability-domain name and an ARM64 Linux image OCID from
@@ -87,13 +91,13 @@ needed in `terraform.tfvars`.
 
 Initialize Terraform with the existing private, versioned Object Storage bucket:
 
-```powershell
-$namespace = (oci os ns get | ConvertFrom-Json).data
-terraform init `
-  -backend-config="bucket=disease-prediction-tfstate" `
-  -backend-config="namespace=$namespace" `
-  -backend-config="region=eu-frankfurt-1" `
-  -backend-config="key=disease-prediction/terraform.tfstate" `
+```bash
+namespace=$(oci os ns get --query data --raw-output)
+terraform init \
+  -backend-config="bucket=disease-prediction-tfstate" \
+  -backend-config="namespace=${namespace}" \
+  -backend-config="region=eu-frankfurt-1" \
+  -backend-config="key=disease-prediction/terraform.tfstate" \
   -backend-config="config_file_profile=DEFAULT"
 ```
 
@@ -113,7 +117,7 @@ another version.
 
 Run these commands from `terraform/oracle`:
 
-```powershell
+```bash
 terraform fmt -check -recursive
 terraform validate
 terraform plan -out=infra.tfplan
@@ -122,9 +126,9 @@ terraform show infra.tfplan
 
 Review the plan before applying it:
 
-```powershell
+```bash
 terraform apply infra.tfplan
-Remove-Item infra.tfplan
+rm infra.tfplan
 ```
 
 When the cloud matches this repository, the plan should show no changes. Stop
@@ -142,8 +146,9 @@ subnet. Apply only after checking the plan.
 
 Connect to the VM by its Tailscale MagicDNS name:
 
-```powershell
-ssh -i "$env:USERPROFILE\.ssh\disease-prediction-oci.key" opc@oracle-k3s
+```bash
+chmod 600 "$HOME/.ssh/disease-prediction-oci.key"
+ssh -i "$HOME/.ssh/disease-prediction-oci.key" opc@oracle-k3s
 ```
 
 To restore public SSH for recovery, set `admin_ssh_cidr` to your current public
@@ -172,7 +177,7 @@ Terraform destroys the VM.
    Keep the VCN and subnet guards.
 2. Create and review a VM-only destroy plan:
 
-   ```powershell
+   ```bash
    terraform plan -destroy -target=oci_core_instance.k3s_server -out=destroy.tfplan
    terraform show destroy.tfplan
    ```
@@ -180,9 +185,9 @@ Terraform destroys the VM.
    Apply only if the plan contains one action: destroy
    `oci_core_instance.k3s_server`.
 
-   ```powershell
+   ```bash
    terraform apply destroy.tfplan
-   Remove-Item destroy.tfplan
+   rm destroy.tfplan
    ```
 
 3. Wait until the old boot volume is `TERMINATED`. Restore the VM destroy guard,
@@ -195,11 +200,11 @@ To remove only the VM and keep the network, remove
 Review a normal plan and apply it only if the VM is the only resource to be
 destroyed. For example:
 
-```powershell
+```bash
 terraform plan -out=remove-vm.tfplan
 terraform show remove-vm.tfplan
 terraform apply remove-vm.tfplan
-Remove-Item remove-vm.tfplan
+rm remove-vm.tfplan
 ```
 
 If the VM resource remains in the configuration, a later apply will create it
@@ -209,11 +214,11 @@ To destroy the full stack, back up any data you need. Remove the
 `prevent_destroy` guards from the VM, VCN, and public subnet in a reviewed
 teardown change. Create and inspect a saved destroy plan:
 
-```powershell
+```bash
 terraform plan -destroy -out=destroy.tfplan
 terraform show destroy.tfplan
 terraform apply destroy.tfplan
-Remove-Item destroy.tfplan
+rm destroy.tfplan
 ```
 
 Apply only when the plan lists the resources you intend to delete. The Object
