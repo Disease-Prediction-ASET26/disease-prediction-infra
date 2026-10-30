@@ -17,3 +17,13 @@ output "subnet_id" {
   description = "OCI public subnet OCID managed by Terraform."
   value       = oci_core_subnet.public.id
 }
+
+output "secrets_vault_id" {
+  description = "Non-secret OCI Vault OCID for External Secrets Operator configuration."
+  value       = oci_kms_vault.secrets.id
+}
+
+output "secrets_vault_region" {
+  description = "OCI region containing the project secrets Vault."
+  value       = var.region
+}
