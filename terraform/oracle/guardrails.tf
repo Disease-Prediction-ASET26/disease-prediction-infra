@@ -89,15 +89,15 @@ resource "oci_limits_quota" "always_free_object_storage" {
 # Budgets are alerting controls, not spend caps. Target the root compartment so
 # this budget observes all compartments in the tenancy.
 resource "oci_budget_budget" "root_monthly" {
-  amount                               = 1
-  compartment_id                       = var.tenancy_ocid
-  display_name                         = "${var.project_name}-monthly-cost-alert"
-  description                          = "Alert on unexpected tenancy spend; OCI budgets do not stop usage."
-  processing_period_type               = "MONTH"
-  reset_period                         = "MONTHLY"
+  amount                                = 1
+  compartment_id                        = var.tenancy_ocid
+  display_name                          = "${var.project_name}-monthly-cost-alert"
+  description                           = "Alert on unexpected tenancy spend; OCI budgets do not stop usage."
+  processing_period_type                = "MONTH"
+  reset_period                          = "MONTHLY"
   budget_processing_period_start_offset = 1
-  target_type                          = "COMPARTMENT"
-  targets                              = [var.tenancy_ocid]
+  target_type                           = "COMPARTMENT"
+  targets                               = [var.tenancy_ocid]
 
   lifecycle {
     prevent_destroy = true
