@@ -19,6 +19,17 @@ variable "oci_profile" {
   default     = "DEFAULT"
 }
 
+variable "budget_alert_email" {
+  description = "Email address for OCI monthly actual-spend and forecast budget alerts."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.budget_alert_email))
+    error_message = "budget_alert_email must be a valid email address."
+  }
+}
+
 variable "availability_domain" {
   description = "Exact tenancy-specific availability-domain name for the VM."
   type        = string
