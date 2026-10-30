@@ -154,3 +154,45 @@ resource "oci_core_instance" "k3s_server" {
     }
   }
 }
+
+resource "oci_kms_vault" "secrets" {
+  compartment_id = var.compartment_ocid
+  display_name   = "${var.project_name}-secrets"
+  vault_type     = "DEFAULT"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "oci_kms_key" "secrets" {
+  compartment_id      = var.compartment_ocid
+  display_name        = "${var.project_name}-secrets-key"
+  management_endpoint = oci_kms_vault.secrets.management_endpoint
+  protection_mode     = "HSM"
+
+  key_shape {
+    algorithm = "AES"
+    length    = 32
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "oci_identity_dynamic_group" "k3s_vault_reader" {
+  compartment_id = var.tenancy_ocid
+  name           = "${var.project_name}-k3s-vault-reader"
+  description    = "The single K3s instance can read this project's OCI Vault secrets."
+  matching_rule  = "Any {instance.id = '${oci_core_instance.k3s_server.id}'}"
+}
+
+resource "oci_identity_policy" "k3s_vault_reader" {
+  compartment_id = var.tenancy_ocid
+  name           = "${var.project_name}-k3s-vault-reader"
+  description    = "Allow the K3s instance to read secrets from its project Vault."
+  statements = [
+    "Allow dynamic-group ${oci_identity_dynamic_group.k3s_vault_reader.name} to read secret-family in compartment id ${var.compartment_ocid} where target.vault.id = '${oci_kms_vault.secrets.id}'"
+  ]
+}

@@ -6,13 +6,13 @@ cluster configuration live in `disease-prediction-gitops`.
 
 ## Current setup
 
-Checked on 2026-10-29:
+Checked on 2026-10-30:
 
 - One ARM64 `VM.Standard.A1.Flex` VM in Frankfurt AD-2, with 2 OCPUs and 12 GB
   RAM.
 - Oracle Linux 9.8 with K3s `v1.37.1+k3s1`.
 - One 200 GB boot volume and one full boot-volume backup.
-- During the Tailscale migration, public SSH is limited to `admin_ssh_cidr`.
+- Tailscale SSH and Kubernetes API access work; public SSH is disabled.
   Kubernetes and application ports are closed to the internet.
 
 The VM uses the Always Free A1 compute and block storage limits: 2 OCPUs, 12 GB
@@ -20,6 +20,11 @@ RAM, 200 GB of combined boot and block storage, and up to five volume backups.
 These limits apply across the tenancy. Check **Limits, Quotas and Usage** before
 adding resources.
 [OCI Always Free limits](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
+
+The Terraform configuration defines a standard OCI Vault and an HSM-backed AES
+key for Kubernetes secrets. Once applied, the K3s instance receives read-only
+access to that Vault through an OCI dynamic group. The Vault OCID and region are
+non-secret outputs used by External Secrets Operator in the GitOps repository.
 
 ## Architecture
 
@@ -39,7 +44,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   config[Terraform files] --> cli[Terraform CLI<br/>local OCI profile]
-  cli --> api[OCI API] --> resources[VCN, subnet, and VM]
+  cli --> api[OCI API] --> resources[VCN, subnet, VM, Vault, key, and IAM policy]
   cli -->|state read and write| state[(Object Storage<br/>remote state)]
 ```
 
@@ -47,15 +52,19 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  admin[Admin workstation] -->|SSH from admin CIDR| vm[OCI ARM64 VM<br/>2 OCPU, 12 GB RAM]
+  admin[Admin workstation] -->|Tailscale SSH and kubectl| vm[OCI ARM64 VM<br/>2 OCPU, 12 GB RAM]
   vm --> cluster[Single-node K3s] --> pods[CoreDNS<br/>local-path<br/>metrics-server]
+  cluster -. later .-> eso[External Secrets Operator]
+  eso -. read-only instance principal .-> vault[OCI Vault]
   vm --> gateway[Internet gateway] --> internet((Internet))
   cluster -. later .-> tunnel[Cloudflare Tunnel]
   domain[Name.com domain<br/>hostname TBD] -. DNS later .-> tunnel
 ```
 
-Only SSH from `admin_ssh_cidr` is open to the internet. Argo CD, application workloads,
-the tunnel, and domain records are later work.
+Public SSH is disabled because Tailscale access is verified. Kubernetes and
+application ports are closed to the internet. Application workloads, the
+tunnel, and domain records are later work. Argo CD and cluster configuration
+are managed in the GitOps repository.
 
 ## Requirements
 
@@ -134,6 +143,56 @@ rm infra.tfplan
 When the cloud matches this repository, the plan should show no changes. Stop
 and review unexpected replacements or deletions. The VM, VCN, and public subnet
 have `prevent_destroy` guards.
+
+## OCI Vault for Kubernetes secrets
+
+The Terraform configuration creates a standard Vault and an HSM-backed AES
+master key. It also creates a dynamic group that matches only the K3s instance
+and a policy that permits that instance to read secrets only from this Vault.
+The instance principal is a VM-level identity: any workload able to reach the
+instance metadata service shares this identity, so keep the policy read-only
+and Vault-scoped.
+
+Before the first apply, check OCI **Vault** resources and the Terraform state
+for an existing project Vault. Import an existing matching Vault, key, dynamic
+group, or policy instead of creating duplicates. From `terraform/oracle`,
+review the saved plan and confirm it adds only the Vault, key, dynamic group,
+and policy. It must not replace the VM, VCN, or subnet:
+
+```bash
+terraform state list
+terraform plan -out=infra.tfplan
+terraform show infra.tfplan
+```
+
+Apply only after reviewing the plan:
+
+```bash
+terraform apply infra.tfplan
+rm infra.tfplan
+terraform output secrets_vault_id
+terraform output secrets_vault_region
+```
+
+These outputs are resource metadata, not credentials. Configure External
+Secrets Operator with the Vault OCID and region, and use OCI Instance
+Principal authentication. Do not manage secret payloads with Terraform:
+Terraform state can contain resource inputs. Add and update secret values
+through the OCI Console or another secure, non-logged method. Never put them
+in `terraform.tfvars`, Git, a shell command literal, or logs.
+
+To rotate a value, create a new secret version in OCI Vault and confirm ESO
+refreshes the Kubernetes Secret. To remove a secret, first remove its
+`ExternalSecret` consumer and synced Kubernetes Secret, then schedule deletion
+of the OCI secret in Vault. Keep Vault and key deletion protected while any
+secret or cluster still depends on them.
+
+To deliberately remove the Vault after all consumers and secret versions are
+gone, use a reviewed change to remove the Vault and key `prevent_destroy`
+guards. Then create and inspect a destroy plan. Apply only if it removes the
+intended Vault, key, dynamic group, and policy, with no VM or network changes.
+OCI may retain scheduled deletions for a waiting period; follow the Vault
+state before removing the resources from Terraform.
 
 ## Set up private access and check K3s
 
