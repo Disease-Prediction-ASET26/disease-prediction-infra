@@ -99,14 +99,18 @@ flowchart LR
   cluster -. later .-> eso[External Secrets Operator]
   eso -. read-only instance principal .-> vault[OCI Vault]
   vm --> gateway[Internet gateway] --> internet((Internet))
-  cluster -. later .-> tunnel[Cloudflare Tunnel]
-  domain[Name.com domain<br/>hostname TBD] -. DNS later .-> tunnel
+  cluster -. later .-> tunnel[Cloudflare Tunnel connector]
+  domain[Name.com registrar<br/>pocket-doc.app] -. delegate DNS later .-> dns[Cloudflare DNS]
+  dns -. app CNAME records later .-> tunnel
 ```
 
 Public SSH is disabled because Tailscale access is verified. Kubernetes and
-application ports are closed to the internet. Application workloads, the
-tunnel, and domain records are later work. Argo CD and cluster configuration
-are managed in the GitOps repository.
+application ports are closed to the internet. `pocket-doc.app` is registered
+at Name.com; Cloudflare delegation, the outbound tunnel connector, and app DNS
+records remain planned. The tunnel design needs no public VM ports. Argo CD and
+cluster configuration are managed in the GitOps repository. See its
+[domain and ingress runbook](https://github.com/Disease-Prediction-ASET26/disease-prediction-gitops/blob/main/docs/operations/domain-ingress.md)
+for the DNS cutover steps and implementation gates.
 
 ## Requirements
 
