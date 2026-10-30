@@ -35,12 +35,14 @@ variable "ssh_public_key_path" {
 }
 
 variable "admin_ssh_cidr" {
-  description = "Trusted administrator public IPv4 CIDR allowed to connect to SSH (use /32 where possible)."
+  description = "Optional temporary public IPv4 CIDR allowed to connect to SSH; set null after private access is verified."
   type        = string
+  default     = null
+  nullable    = true
 
   validation {
-    condition     = can(cidrnetmask(var.admin_ssh_cidr)) && can(regex("/(2[4-9]|3[0-2])$", var.admin_ssh_cidr))
-    error_message = "admin_ssh_cidr must be a valid IPv4 CIDR no broader than /24; use your public IP with /32 when possible."
+    condition     = var.admin_ssh_cidr == null || (can(cidrnetmask(var.admin_ssh_cidr)) && can(regex("/(2[4-9]|3[0-2])$", var.admin_ssh_cidr)))
+    error_message = "admin_ssh_cidr must be null or a valid IPv4 CIDR no broader than /24; use your public IP with /32 when possible."
   }
 }
 

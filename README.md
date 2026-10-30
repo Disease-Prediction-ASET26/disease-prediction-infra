@@ -12,8 +12,8 @@ Checked on 2026-10-29:
   RAM.
 - Oracle Linux 9.8 with K3s `v1.37.1+k3s1`.
 - One 200 GB boot volume and one full boot-volume backup.
-- The public subnet allows SSH only from `admin_ssh_cidr`. Kubernetes and
-  application ports are closed to the internet.
+- During the Tailscale migration, public SSH is limited to `admin_ssh_cidr`.
+  Kubernetes and application ports are closed to the internet.
 
 The VM uses the Always Free A1 compute and block storage limits: 2 OCPUs, 12 GB
 RAM, 200 GB of combined boot and block storage, and up to five volume backups.
@@ -62,7 +62,8 @@ the tunnel, and domain records are later work.
 - Terraform 1.17.1, matching CI. The OCI provider is pinned to 9.11.0 in
   `versions.tf` and `.terraform.lock.hcl`.
 - OCI CLI configured with a local `DEFAULT` API signing-key profile.
-- An SSH key pair and your current public IPv4 address.
+- An SSH key pair. A public IPv4 address is needed only for temporary SSH
+  access before Tailscale is ready.
 
 Terraform uses your local OCI profile. Keep the API private key and SSH private
 key out of this repository.
@@ -78,10 +79,11 @@ Copy-Item terraform.tfvars.example terraform.tfvars
 ```
 
 Set the exact availability-domain name and an ARM64 Linux image OCID from
-Frankfurt. Set `ssh_public_key_path` to your public key file and
-`admin_ssh_cidr` to your current public IP with `/32`. The VCN, subnet, and VM
-are already in remote state, so their OCIDs are not needed in
-`terraform.tfvars`.
+Frankfurt. Set `ssh_public_key_path` to your public key file and, while using
+public SSH, set `admin_ssh_cidr` to your current public IP with `/32`. After
+Tailscale works from your laptop, set `admin_ssh_cidr = null` to remove public
+SSH. The VCN, subnet, and VM are already in remote state, so their OCIDs are not
+needed in `terraform.tfvars`.
 
 Initialize Terraform with the existing private, versioned Object Storage bucket:
 
@@ -101,9 +103,9 @@ never commit them or `terraform.tfvars`.
 ## Modify and apply changes
 
 Change input values in `terraform.tfvars` and resource settings in the `.tf`
-files. For example, update `admin_ssh_cidr` when your public IP changes. Avoid
-making changes only in the OCI Console; a later Terraform apply may overwrite
-them.
+files. Avoid making changes only in the OCI Console; a later Terraform apply may
+overwrite them. Before Tailscale is ready, keep `admin_ssh_cidr` set to your
+current `/32`; after private access is confirmed, set it to `null`.
 
 The `k3s_version` input is used by cloud-init on the VM's first boot. Changing
 it does not update a running VM; use the VM replacement steps below to install
@@ -129,14 +131,24 @@ When the cloud matches this repository, the plan should show no changes. Stop
 and review unexpected replacements or deletions. The VM, VCN, and public subnet
 have `prevent_destroy` guards.
 
-## Connect and check K3s
+## Set up private access and check K3s
 
-Get the current public IP and connect as `opc`:
+Install and verify Tailscale by following the [GitOps Tailscale guide](https://github.com/Disease-Prediction-ASET26/disease-prediction-gitops/blob/main/docs/operations/tailscale.md).
+Keep `admin_ssh_cidr` set until SSH and the Kubernetes tunnel both work over the
+tailnet. Then set `admin_ssh_cidr = null` in `terraform.tfvars` and review the
+plan. It should remove only the public SSH ingress rule from
+`oci_core_security_list.public`; it must not replace or destroy the VM, VCN, or
+subnet. Apply only after checking the plan.
+
+Connect to the VM by its Tailscale MagicDNS name:
 
 ```powershell
-$ip = terraform output -raw instance_public_ip
-ssh -i "$env:USERPROFILE\.ssh\disease-prediction-oci.key" opc@$ip
+ssh -i "$env:USERPROFILE\.ssh\disease-prediction-oci.key" opc@oracle-k3s
 ```
+
+To restore public SSH for recovery, set `admin_ssh_cidr` to your current public
+IPv4 `/32`, review and apply the Terraform plan, then verify SSH before changing
+Tailscale or its tailnet policy.
 
 On the VM, check cloud-init, K3s, and the node:
 
