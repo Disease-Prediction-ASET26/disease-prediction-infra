@@ -54,14 +54,18 @@ resource "oci_core_security_list" "public" {
   vcn_id         = oci_core_vcn.project.id
   display_name   = "${var.project_name}-public-access"
 
-  ingress_security_rules {
-    description = "SSH from the administrator IPv4 CIDR only"
-    protocol    = "6"
-    source      = var.admin_ssh_cidr
+  dynamic "ingress_security_rules" {
+    for_each = var.admin_ssh_cidr == null ? [] : [var.admin_ssh_cidr]
 
-    tcp_options {
-      min = 22
-      max = 22
+    content {
+      description = "SSH from the administrator IPv4 CIDR only"
+      protocol    = "6"
+      source      = ingress_security_rules.value
+
+      tcp_options {
+        min = 22
+        max = 22
+      }
     }
   }
 
