@@ -26,6 +26,48 @@ key for Kubernetes secrets. Once applied, the K3s instance receives read-only
 access to that Vault through an OCI dynamic group. The Vault OCID and region are
 non-secret outputs used by External Secrets Operator in the GitOps repository.
 
+## Always Free guardrails
+
+The Terraform configuration defines tenancy-wide quota policies for Compute,
+Block Volume, and Object Storage, plus a monthly budget of 1 in the tenancy
+billing currency with actual-spend and forecast alerts. These controls take
+effect only after a reviewed Terraform plan is applied.
+The quota policies allow A1 compute only in the selected home-region AD, cap it
+at 2 OCPUs and 12 GB, cap boot and block storage at 200 GB in that AD, cap
+volume backups at five in the home region, and cap Object Storage at 20 GB in
+the home region. They apply across the tenancy, including child compartments.
+Other Compute shapes and those storage services outside the selected allowance
+are blocked. Check the plan carefully because these policies intentionally
+restrict future resource creation throughout the tenancy. See OCI's
+[quota policy syntax](https://docs.oracle.com/en-us/iaas/Content/Quotas/Concepts/quota_policy_syntax.htm)
+for how these tenancy-wide statements are evaluated.
+
+The VM already uses the full A1 compute and Block Volume capacity allowances.
+The configuration keeps boot-volume performance at 10 VPUs/GB. OCI meters
+performance separately from volume capacity, so inspect Cost Analysis for the
+Block Volume Performance SKU (`B91962`) and compare it with the
+[OCI price list](https://www.oracle.com/cloud/price-list/). Treat a line item
+as chargeable unless Cost Analysis shows that the tenancy's free allowance
+offsets it. The Always Free HSM allowance is 20 key versions across the
+tenancy; do not rotate or replace the HSM key without checking remaining
+versions first.
+
+OCI's Always Free outbound transfer allowance is 10 TB/month. The quota
+policies here do not cap outbound data transfer. [OCI budget alerts](https://docs.oracle.com/en-us/iaas/Content/Billing/Concepts/budgetsoverview.htm)
+are evaluated periodically (about once every 24 hours) and are soft limits:
+they notify but do not stop resources or charges. These policies do not cap
+charges from services outside the listed resource types, so review Cost
+Analysis after changes and regularly during operation.
+
+The Terraform Object Storage quota also covers the versioned state bucket and
+other Object Storage in the home region. Version history consumes storage. If
+the 20 GB quota is reached, OCI can reject writes, including Terraform state
+updates; review old object versions before the bucket approaches the limit.
+
+The budget, alert rules, and quota policies use `prevent_destroy`. To remove
+them, make a reviewed change that deliberately removes those guards. A full
+stack destroy must not remove these controls accidentally.
+
 ## Architecture
 
 Each diagram shows one view. Dashed arrows show work planned for later.
@@ -44,7 +86,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   config[Terraform files] --> cli[Terraform CLI<br/>local OCI profile]
-  cli --> api[OCI API] --> resources[VCN, subnet, VM, Vault, key, and IAM policy]
+  cli --> api[OCI API] --> resources[VCN, subnet, VM, backup, Vault, key, quotas, budget, and IAM policy]
   cli -->|state read and write| state[(Object Storage<br/>remote state)]
 ```
 
@@ -75,6 +117,8 @@ are managed in the GitOps repository.
 - OCI CLI installed and configured with a local `DEFAULT` API signing-key
   profile. Follow the [OCI CLI Linux install guide](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm),
   then run `oci setup config` and choose the `DEFAULT` profile.
+- The OCI identity used by Terraform must be allowed to manage quota policies
+  and budgets in the root compartment, in addition to the project resources.
 - An SSH key pair. A public IPv4 address is needed only for temporary SSH
   access before Tailscale is ready.
 
@@ -95,23 +139,130 @@ Set the exact availability-domain name and an ARM64 Linux image OCID from
 Frankfurt. Set `ssh_public_key_path` to your public key file and, while using
 public SSH, set `admin_ssh_cidr` to your current public IP with `/32`. After
 Tailscale works from your laptop, set `admin_ssh_cidr = null` to remove public
-SSH. The VCN, subnet, and VM are already in remote state, so their OCIDs are not
-needed in `terraform.tfvars`.
+SSH. Set `budget_alert_email` to an address you check. The value belongs in the
+ignored local `terraform.tfvars`; it is not a credential, but it is personal
+information. The VCN, subnet, and VM are already in remote state, so their OCIDs
+are not needed in `terraform.tfvars`.
 
-Initialize Terraform with the existing private, versioned Object Storage bucket:
+### Bootstrap the remote state bucket
+
+The remote state bucket is deliberately not managed by this Terraform state:
+Terraform needs the bucket before it can initialize this backend. Create it
+once, separately, in the tenancy home region and root compartment. Do not add
+the bucket to `main.tf` or delete it during a project stack teardown.
+
+First check whether the existing bucket is present. Create it only if it is
+missing. The bucket must use Standard storage, remain private, and have object
+versioning enabled:
 
 ```bash
-namespace=$(oci os ns get --query data --raw-output)
+OCI_TENANCY_OCID="ocid1.tenancy.oc1..replace-me"
+OCI_HOME_REGION="eu-frankfurt-1"
+TF_STATE_BUCKET="disease-prediction-tfstate"
+OCI_NAMESPACE=$(oci os ns get --region "$OCI_HOME_REGION" --query data --raw-output)
+
+oci os bucket get \
+  --namespace-name "$OCI_NAMESPACE" \
+  --name "$TF_STATE_BUCKET" \
+  --region "$OCI_HOME_REGION"
+```
+
+If the bucket is missing, create it with these settings:
+
+```bash
+oci os bucket create \
+  --namespace-name "$OCI_NAMESPACE" \
+  --compartment-id "$OCI_TENANCY_OCID" \
+  --name "$TF_STATE_BUCKET" \
+  --storage-tier Standard \
+  --public-access-type NoPublicAccess \
+  --versioning Enabled \
+  --region "$OCI_HOME_REGION"
+```
+
+If it exists but versioning is disabled or suspended, enable it:
+
+```bash
+oci os bucket update \
+  --namespace-name "$OCI_NAMESPACE" \
+  --name "$TF_STATE_BUCKET" \
+  --versioning Enabled \
+  --region "$OCI_HOME_REGION"
+```
+
+You can do the same bootstrap in the OCI Console: select the home region, open
+**Object Storage & Archive Storage → Buckets**, and create a Standard bucket in
+the root compartment with **No Public Access** and **Enable object versioning**.
+Object versioning cannot be disabled after it has been enabled; it can only be
+suspended. Keep the bucket and its previous state versions while the project
+uses this backend.
+
+### Initialize Terraform
+
+Initialize Terraform with that private, versioned bucket:
+
+```bash
+OCI_HOME_REGION="eu-frankfurt-1"
+TF_STATE_BUCKET="disease-prediction-tfstate"
+OCI_NAMESPACE=$(oci os ns get --region "$OCI_HOME_REGION" --query data --raw-output)
+
 terraform init \
-  -backend-config="bucket=disease-prediction-tfstate" \
-  -backend-config="namespace=${namespace}" \
-  -backend-config="region=eu-frankfurt-1" \
+  -backend-config="bucket=${TF_STATE_BUCKET}" \
+  -backend-config="namespace=${OCI_NAMESPACE}" \
+  -backend-config="region=${OCI_HOME_REGION}" \
   -backend-config="key=disease-prediction/terraform.tfstate" \
   -backend-config="config_file_profile=DEFAULT"
 ```
 
 Keep this state bucket. State and saved plans can contain sensitive values;
 never commit them or `terraform.tfvars`.
+
+### Import existing resources before applying
+
+The current full boot-volume backup is represented by
+`oci_core_boot_volume_backup.baseline`. Import its existing OCID before the
+first plan so Terraform does not create a duplicate backup:
+
+```bash
+terraform import oci_core_boot_volume_backup.baseline "<BOOT_VOLUME_BACKUP_OCID>"
+```
+
+Before applying the guardrails, inspect **Billing & Cost Management → Budgets**
+and **Governance & Administration → Quota policies**. OCI allows one budget per
+target compartment, and quota policy names are unique and immutable across the
+tenancy. Import an existing root budget before planning. Import a quota policy
+if it already has the configured name; if you adopt an equivalent policy with
+a different name, first change the Terraform `name` to match its immutable
+name. Review existing quota statements and resource usage in **Limits, Quotas
+and Usage** first; the quota policies below apply across the tenancy and
+intentionally block other Compute shapes and storage outside the defined
+allowance.
+
+Use these import addresses for any existing matching controls:
+
+```bash
+terraform import oci_budget_budget.root_monthly "<BUDGET_OCID>"
+terraform import oci_limits_quota.always_free_compute "<COMPUTE_QUOTA_OCID>"
+terraform import oci_limits_quota.always_free_block_storage "<BLOCK_STORAGE_QUOTA_OCID>"
+terraform import oci_limits_quota.always_free_object_storage "<OBJECT_STORAGE_QUOTA_OCID>"
+```
+
+Import any existing alert rules that match the four configured budget rules as
+well. The alert rule import ID includes both the budget and alert rule OCIDs:
+
+```bash
+terraform import 'oci_budget_alert_rule.root_monthly["actual_50"]' \
+  "budgets/<BUDGET_OCID>/alertRules/<ALERT_RULE_OCID>"
+```
+
+Repeat with `actual_100`, `forecast_50`, and `forecast_100` for the other
+matching rules. Check that imported resources and policies have the intended
+settings before apply.
+
+Run `terraform plan -out=infra.tfplan` and inspect it before applying. The plan
+may add the quota policies, budget, and alert rules; it must not replace the
+VM, VCN, subnet, Vault, key, or create a second backup. Quota policies can take
+up to ten minutes to become effective after apply.
 
 ## Modify and apply changes
 
@@ -230,10 +381,15 @@ not update a running VM.
 
 Back up any data you need before a rebuild. The 200 GB boot volume uses the full
 free storage allowance. `preserve_boot_volume = false` deletes that volume when
-Terraform destroys the VM.
+Terraform destroys the VM. The managed baseline backup is tied to this boot
+volume, so delete that backup before replacing the VM and create a new one after
+the replacement is running.
 
-1. Temporarily remove `prevent_destroy` from `oci_core_instance.k3s_server`.
-   Keep the VCN and subnet guards.
+1. In a reviewed change, remove the
+   `oci_core_boot_volume_backup.baseline` block and temporarily remove
+   `prevent_destroy` from `oci_core_instance.k3s_server`. Keep the VCN and
+   subnet guards. Run a normal plan; it should destroy only the managed backup.
+   Apply that plan, then remove the Terraform plan file.
 2. Create and review a VM-only destroy plan:
 
    ```bash
@@ -249,15 +405,18 @@ Terraform destroys the VM.
    rm destroy.tfplan
    ```
 
-3. Wait until the old boot volume is `TERMINATED`. Restore the VM destroy guard,
-   then run a normal plan and apply to create the replacement.
+3. Wait until the old boot volume is `TERMINATED`. Restore the VM destroy guard
+   and re-add `oci_core_boot_volume_backup.baseline`. Run a normal plan and
+   apply to create the replacement VM and its new baseline backup.
 
 ## Remove the VM or the full stack
 
 To remove only the VM and keep the network, remove
-`oci_core_instance.k3s_server` and its outputs from the Terraform configuration.
-Review a normal plan and apply it only if the VM is the only resource to be
-destroyed. For example:
+`oci_core_instance.k3s_server`, `oci_core_boot_volume_backup.baseline`, and
+the instance outputs from the Terraform configuration. This also deletes the
+managed boot-volume backup. Review a normal plan and apply it only if the VM,
+its boot volume, and that backup are the only resources to be destroyed. For
+example:
 
 ```bash
 terraform plan -out=remove-vm.tfplan
@@ -269,9 +428,10 @@ rm remove-vm.tfplan
 If the VM resource remains in the configuration, a later apply will create it
 again.
 
-To destroy the full stack, back up any data you need. Remove the
-`prevent_destroy` guards from the VM, VCN, and public subnet in a reviewed
-teardown change. Create and inspect a saved destroy plan:
+To destroy the full stack, back up any data you need. The budget, alert rules,
+quota policies, VM, boot-volume backup, VCN, public subnet, Vault, and key all
+have `prevent_destroy` guards. Remove those guards in a reviewed teardown
+change. Create and inspect a saved destroy plan:
 
 ```bash
 terraform plan -destroy -out=destroy.tfplan
@@ -284,7 +444,8 @@ Apply only when the plan lists the resources you intend to delete. The Object
 Storage state bucket is outside this configuration; keep it until the teardown
 is complete and you no longer need the state. If the teardown is permanent,
 remove the Terraform resource blocks too, or a later apply will recreate the
-stack.
+stack. Retain the state bucket and its versions until Terraform no longer needs
+the backend.
 
 Keep active boot and block storage at or below 200 GB and volume backups at or
 below five.

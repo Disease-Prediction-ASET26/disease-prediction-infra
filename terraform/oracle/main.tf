@@ -12,6 +12,10 @@ locals {
   availability_domain_names = [
     for domain in data.oci_identity_availability_domains.available.availability_domains : domain.name
   ]
+  always_free_scope_valid = (
+    var.region == local.home_region &&
+    contains(local.availability_domain_names, var.availability_domain)
+  )
 }
 
 resource "oci_core_vcn" "project" {
@@ -152,6 +156,15 @@ resource "oci_core_instance" "k3s_server" {
       condition     = contains(local.availability_domain_names, var.availability_domain)
       error_message = "availability_domain must exactly match one of the tenancy's availability-domain names in var.region."
     }
+  }
+}
+
+resource "oci_core_boot_volume_backup" "baseline" {
+  boot_volume_id = oci_core_instance.k3s_server.boot_volume_id
+  type           = "FULL"
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
