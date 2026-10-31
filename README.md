@@ -11,9 +11,31 @@ Checked on 2026-10-30:
 - One ARM64 `VM.Standard.A1.Flex` VM in Frankfurt AD-2, with 2 OCPUs and 12 GB
   RAM.
 - Oracle Linux 9.8 with K3s `v1.37.1+k3s1`.
-- One 200 GB boot volume and one full boot-volume backup.
-- Tailscale SSH and Kubernetes API access work; public SSH is disabled.
-  Kubernetes and application ports are closed to the internet.
+- One 200 GB boot volume and one full baseline backup. The backup is not
+  recurring and does not replace application-level backups.
+- Tailscale SSH and Kubernetes API access work; `admin_ssh_cidr` is `null`, so
+  the OCI security list allows no inbound SSH. Kubernetes and app ports are
+  also closed to the internet.
+
+The VM still has a public IPv4 address in a public subnet. Inbound access is
+controlled by the OCI security list; outbound traffic is open for updates,
+image pulls, and the Cloudflare Tunnel. Public subnet placement does not itself
+mean that an application port is exposed.
+
+## Security and recovery limits
+
+- Cloud-init downloads the K3s install script from `get.k3s.io` over HTTPS and
+  pins the K3s release passed to that script. The installer script itself is
+  not independently checksum-verified.
+- The remote Terraform state bucket is private and versioned. Terraform state
+  can still contain sensitive data; restrict OCI access to the bucket and keep
+  saved plan files out of Git.
+- Terraform creates one baseline boot-volume backup, not an ongoing backup
+  schedule. It does not replace off-VM, application-consistent backups or a
+  tested restore.
+- The `admin_ssh_cidr` guard accepts CIDRs as broad as `/24`; use your own
+  public IPv4 `/32` for temporary SSH and set the value to `null` after
+  Tailscale SSH is verified.
 
 The VM uses the Always Free A1 compute and block storage limits: 2 OCPUs, 12 GB
 RAM, 200 GB of combined boot and block storage, and up to five volume backups.
@@ -22,9 +44,12 @@ adding resources.
 [OCI Always Free limits](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
 
 The Terraform configuration defines a standard OCI Vault and an HSM-backed AES
-key for Kubernetes secrets. Once applied, the K3s instance receives read-only
-access to that Vault through an OCI dynamic group. The Vault OCID and region are
-non-secret outputs used by External Secrets Operator in the GitOps repository.
+key for Kubernetes secrets. A dynamic group matches only the K3s VM. Its policy
+can read every secret in that Vault; it is not limited to the secret names
+selected by ESO. OCI Instance Principal is a VM identity, so any pod that can
+reach the instance metadata endpoint may use this permission. Restrict and
+verify metadata access before running untrusted workloads. The Vault OCID and
+region are non-secret outputs used by ESO.
 
 ## Always Free guardrails
 
@@ -70,7 +95,8 @@ stack destroy must not remove these controls accidentally.
 
 ## Architecture
 
-Each diagram shows one view. Dashed arrows show work planned for later.
+Each diagram shows one view. Dashed arrows mark services that are not currently
+deployed in OCI or exposed to the public Internet.
 
 ### Repositories
 
@@ -78,7 +104,7 @@ Each diagram shows one view. Dashed arrows show work planned for later.
 flowchart LR
   infra[Infrastructure repo<br/>Terraform] --> oci[OCI VM and network]
   oci --> cluster[Single-node K3s]
-  gitops[GitOps repo<br/>Argo CD and app config] -. bootstrap later .-> cluster
+  gitops[GitOps repo<br/>Argo CD and app config] --> cluster
 ```
 
 ### Terraform provisioning
@@ -90,27 +116,26 @@ flowchart LR
   cli -->|state read and write| state[(Object Storage<br/>remote state)]
 ```
 
-### Cluster access
+### Cluster access and platform services
 
 ```mermaid
 flowchart LR
   admin[Admin workstation] -->|Tailscale SSH and kubectl| vm[OCI ARM64 VM<br/>2 OCPU, 12 GB RAM]
   vm --> cluster[Single-node K3s] --> pods[CoreDNS<br/>local-path<br/>metrics-server]
-  cluster -. later .-> eso[External Secrets Operator]
-  eso -. read-only instance principal .-> vault[OCI Vault]
+  cluster --> eso[External Secrets Operator]
+  eso -->|VM Instance Principal<br/>read every Vault secret| vault[OCI Vault]
   vm --> gateway[Internet gateway] --> internet((Internet))
-  cluster -. later .-> tunnel[Cloudflare Tunnel connector]
-  domain[Name.com registrar<br/>pocket-doc.app] -. delegate DNS later .-> dns[Cloudflare DNS]
-  dns -. app CNAME records later .-> tunnel
+  cluster --> tunnel[Cloudflare Tunnel connector]
+  domain[Name.com registrar<br/>pocket-doc.app] --> dns[Cloudflare DNS]
+  dns -. no app route currently .-> tunnel
 ```
 
 Public SSH is disabled because Tailscale access is verified. Kubernetes and
-application ports are closed to the internet. `pocket-doc.app` is registered
-at Name.com; Cloudflare delegation, the outbound tunnel connector, and app DNS
-records remain planned. The tunnel design needs no public VM ports. Argo CD and
-cluster configuration are managed in the GitOps repository. See its
-[domain and ingress runbook](https://github.com/Disease-Prediction-ASET26/disease-prediction-gitops/blob/main/docs/operations/domain-ingress.md)
-for the DNS cutover steps and implementation gates.
+application ports are closed to the internet. Name.com delegates to Cloudflare;
+the outbound Tunnel, Traefik Gateway, and ExternalDNS are configured, but no
+application route is currently published. Argo CD and cluster configuration
+are managed in the GitOps repository. See its
+[domain and ingress guide](https://github.com/Disease-Prediction-ASET26/disease-prediction-gitops/blob/main/docs/operations/domain-ingress.md).
 
 ## Requirements
 
@@ -223,7 +248,7 @@ never commit them or `terraform.tfvars`.
 
 ### Import existing resources before applying
 
-The current full boot-volume backup is represented by
+The one-time full baseline boot-volume backup is represented by
 `oci_core_boot_volume_backup.baseline`. Import its existing OCID before the
 first plan so Terraform does not create a duplicate backup:
 
@@ -303,10 +328,11 @@ have `prevent_destroy` guards.
 
 The Terraform configuration creates a standard Vault and an HSM-backed AES
 master key. It also creates a dynamic group that matches only the K3s instance
-and a policy that permits that instance to read secrets only from this Vault.
-The instance principal is a VM-level identity: any workload able to reach the
-instance metadata service shares this identity, so keep the policy read-only
-and Vault-scoped.
+and a policy that permits that instance to read every secret in this Vault.
+ESO's `ExternalSecret` resources select which values it copies; they do not
+narrow the VM's OCI permission. The instance principal is a VM-level identity:
+any pod able to reach the instance metadata service may be able to use it.
+Keep the policy read-only and dedicate this Vault to the cluster.
 
 Before the first apply, check OCI **Vault** resources and the Terraform state
 for an existing project Vault. Import an existing matching Vault, key, dynamic
@@ -383,11 +409,12 @@ not update a running VM.
 
 ## Replace the VM
 
-Back up any data you need before a rebuild. The 200 GB boot volume uses the full
-free storage allowance. `preserve_boot_volume = false` deletes that volume when
-Terraform destroys the VM. The managed baseline backup is tied to this boot
-volume, so delete that backup before replacing the VM and create a new one after
-the replacement is running.
+Back up any data you need before a rebuild. The configured 200 GB boot volume
+uses the full free storage allowance. `preserve_boot_volume = false` deletes
+that volume when Terraform destroys the VM. The managed one-time baseline
+backup is tied to this boot volume, so delete that backup before replacing the
+VM and create a new one after the replacement is running. This is not a
+recurring backup schedule.
 
 1. In a reviewed change, remove the
    `oci_core_boot_volume_backup.baseline` block and temporarily remove

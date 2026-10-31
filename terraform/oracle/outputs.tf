@@ -4,7 +4,7 @@ output "instance_id" {
 }
 
 output "instance_public_ip" {
-  description = "Public IPv4 address for SSH administration. Inbound SSH is restricted by admin_ssh_cidr."
+  description = "Public IPv4 address assigned to the VM; SSH is controlled separately by admin_ssh_cidr."
   value       = oci_core_instance.k3s_server.public_ip
 }
 
