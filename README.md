@@ -6,7 +6,7 @@ cluster configuration live in `disease-prediction-gitops`.
 
 ## Current setup
 
-Checked on 2026-10-30:
+Checked on 2026-10-31:
 
 - One ARM64 `VM.Standard.A1.Flex` VM in Frankfurt AD-2, with 2 OCPUs and 12 GB
   RAM.
@@ -14,8 +14,10 @@ Checked on 2026-10-30:
 - One 200 GB boot volume and one full baseline backup. The backup is not
   recurring and does not replace application-level backups.
 - Tailscale SSH and Kubernetes API access work; `admin_ssh_cidr` is `null`, so
-  the OCI security list allows no inbound SSH. Kubernetes and app ports are
-  also closed to the internet.
+  the OCI security list allows no inbound SSH, Kubernetes API, HTTP, or HTTPS.
+- The Authelia portal and Argo CD UI have public hostnames through the outbound
+  Cloudflare Tunnel. Argo CD requires Authelia OIDC; no product workload route
+  is published.
 
 The VM still has a public IPv4 address in a public subnet. Inbound access is
 controlled by the OCI security list; outbound traffic is open for updates,
@@ -125,16 +127,21 @@ flowchart LR
   cluster --> eso[External Secrets Operator]
   eso -->|VM Instance Principal<br/>read every Vault secret| vault[OCI Vault]
   vm --> gateway[Internet gateway] --> internet((Internet))
-  cluster --> tunnel[Cloudflare Tunnel connector]
   domain[Name.com registrar<br/>pocket-doc.app] --> dns[Cloudflare DNS]
-  dns -. no app route currently .-> tunnel
+  extdns[ExternalDNS] -->|proxied CNAME and TXT| dns
+  cluster --> tunnel[cloudflared connector]
+  tunnel -->|HTTP inside cluster| traefik[Traefik Gateway]
+  traefik --> auth[Authelia portal]
+  traefik --> proxy[Argo CD web proxy]
+  proxy -->|native OIDC| argocd[Argo CD]
 ```
 
-Public SSH is disabled because Tailscale access is verified. Kubernetes and
-application ports are closed to the internet. Name.com delegates to Cloudflare;
-the outbound Tunnel, Traefik Gateway, and ExternalDNS are configured, but no
-application route is currently published. Argo CD and cluster configuration
-are managed in the GitOps repository. See its
+Public SSH is disabled because Tailscale access is verified. The OCI security
+list exposes no inbound SSH, Kubernetes API, HTTP, or HTTPS ports. Approved
+public routes travel through Cloudflare and the outbound Tunnel to Traefik;
+the Authelia portal and Authelia-protected Argo CD UI are published. No product
+workload route is published. Argo CD and cluster configuration are managed in
+the GitOps repository. See its
 [domain and ingress guide](https://github.com/Disease-Prediction-ASET26/disease-prediction-gitops/blob/main/docs/operations/domain-ingress.md).
 
 ## Requirements
@@ -165,8 +172,9 @@ cp terraform.tfvars.example terraform.tfvars
 ```
 
 Set the exact availability-domain name and an ARM64 Linux image OCID from
-Frankfurt. Set `ssh_public_key_path` to your public key file and, while using
-public SSH, set `admin_ssh_cidr` to your current public IP with `/32`. After
+Frankfurt. Set `ssh_public_key_path` to the absolute path of your public key
+file. While using public SSH, set `admin_ssh_cidr` to your current public IP
+with `/32`. After
 Tailscale works from your laptop, set `admin_ssh_cidr = null` to remove public
 SSH. Set `budget_alert_email` to an address you check. The value belongs in the
 ignored local `terraform.tfvars`; it is not a credential, but it is personal
