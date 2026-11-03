@@ -95,54 +95,11 @@ The budget, alert rules, and quota policies use `prevent_destroy`. To remove
 them, make a reviewed change that deliberately removes those guards. A full
 stack destroy must not remove these controls accidentally.
 
-## Architecture
+## Architecture overview
 
-Each diagram shows one view. Dashed arrows mark services that are not currently
-deployed in OCI or exposed to the public Internet.
-
-### Repositories
-
-```mermaid
-flowchart LR
-  infra[Infrastructure repo<br/>Terraform] --> oci[OCI VM and network]
-  oci --> cluster[Single-node K3s]
-  gitops[GitOps repo<br/>Argo CD and app config] --> cluster
-```
-
-### Terraform provisioning
-
-```mermaid
-flowchart LR
-  config[Terraform files] --> cli[Terraform CLI<br/>local OCI profile]
-  cli --> api[OCI API] --> resources[VCN, subnet, VM, backup, Vault, key, quotas, budget, and IAM policy]
-  cli -->|state read and write| state[(Object Storage<br/>remote state)]
-```
-
-### Cluster access and platform services
-
-```mermaid
-flowchart LR
-  admin[Admin workstation] -->|Tailscale SSH and kubectl| vm[OCI ARM64 VM<br/>2 OCPU, 12 GB RAM]
-  vm --> cluster[Single-node K3s] --> pods[CoreDNS<br/>local-path<br/>metrics-server]
-  cluster --> eso[External Secrets Operator]
-  eso -->|VM Instance Principal<br/>read every Vault secret| vault[OCI Vault]
-  vm --> gateway[Internet gateway] --> internet((Internet))
-  domain[Name.com registrar<br/>pocket-doc.app] --> dns[Cloudflare DNS]
-  extdns[ExternalDNS] -->|proxied CNAME and TXT| dns
-  cluster --> tunnel[cloudflared connector]
-  tunnel -->|HTTP inside cluster| traefik[Traefik Gateway]
-  traefik --> auth[Authelia portal]
-  traefik --> proxy[Argo CD web proxy]
-  proxy -->|native OIDC| argocd[Argo CD]
-```
-
-Public SSH is disabled because Tailscale access is verified. The OCI security
-list exposes no inbound SSH, Kubernetes API, HTTP, or HTTPS ports. Approved
-public routes travel through Cloudflare and the outbound Tunnel to Traefik;
-the Authelia portal and Authelia-protected Argo CD UI are published. No product
-workload route is published. Argo CD and cluster configuration are managed in
-the GitOps repository. See its
-[domain and ingress guide](https://github.com/Disease-Prediction-ASET26/disease-prediction-gitops/blob/main/docs/operations/domain-ingress.md).
+See the [cross-repository DevOps overview](https://github.com/Disease-Prediction-ASET26/disease-prediction-docs/blob/main/devops/README.md)
+for the ownership map and system diagrams. This README remains the operational
+guide for Terraform setup and infrastructure changes.
 
 ## Requirements
 
