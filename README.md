@@ -4,6 +4,23 @@ This repository uses Terraform to manage the Oracle Cloud Infrastructure (OCI)
 VM and network for the disease-prediction project. Kubernetes applications and
 cluster configuration live in `disease-prediction-gitops`.
 
+## Contents
+
+- [Current setup](#current-setup)
+- [Security and recovery limits](#security-and-recovery-limits)
+- [Always Free guardrails](#always-free-guardrails)
+- [Architecture overview](#architecture-overview)
+- [Requirements](#requirements)
+- [Set up a local checkout](#set-up-a-local-checkout)
+  - [Bootstrap the remote state bucket](#bootstrap-the-remote-state-bucket)
+  - [Initialize Terraform](#initialize-terraform)
+  - [Import existing resources before applying](#import-existing-resources-before-applying)
+- [Modify and apply changes](#modify-and-apply-changes)
+- [OCI Vault for Kubernetes secrets](#oci-vault-for-kubernetes-secrets)
+- [Set up private access and check K3s](#set-up-private-access-and-check-k3s)
+- [Replace the VM](#replace-the-vm)
+- [Remove the VM or the full stack](#remove-the-vm-or-the-full-stack)
+
 ## Current setup
 
 Checked on 2026-10-31:
@@ -15,9 +32,9 @@ Checked on 2026-10-31:
   recurring and does not replace application-level backups.
 - Tailscale SSH and Kubernetes API access work; `admin_ssh_cidr` is `null`, so
   the OCI security list allows no inbound SSH, Kubernetes API, HTTP, or HTTPS.
-- The Authelia portal and Argo CD UI have public hostnames through the outbound
-  Cloudflare Tunnel. Argo CD requires Authelia OIDC; no product workload route
-  is published.
+- Authelia, Argo CD, and Grafana have public hostnames through the outbound
+  Cloudflare Tunnel. Argo CD and Grafana use Authelia OIDC; no product workload
+  route is published.
 
 The VM still has a public IPv4 address in a public subnet. Inbound access is
 controlled by the OCI security list; outbound traffic is open for updates,
