@@ -105,7 +105,7 @@ Analysis after changes and regularly during operation.
 
 The Terraform Object Storage quota also covers the versioned state bucket, the
 private Hanko backup bucket, and other Object Storage in the home region. The
-Hanko bucket deletes backups after 30 days and has a `prevent_destroy` guard.
+Hanko bucket deletes backups after seven days and has a `prevent_destroy` guard.
 The [Hanko operations guide](https://github.com/Disease-Prediction-ASET26/disease-prediction-gitops/blob/main/docs/operations/hanko.md)
 covers the backup job, credentials, and restore. The bucket shares the 20 GB
 quota with Terraform state. Monitor its use and preserve required backups before
