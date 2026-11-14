@@ -103,8 +103,15 @@ they notify but do not stop resources or charges. These policies do not cap
 charges from services outside the listed resource types, so review Cost
 Analysis after changes and regularly during operation.
 
-The Terraform Object Storage quota also covers the versioned state bucket and
-other Object Storage in the home region. Version history consumes storage. If
+The Terraform Object Storage quota also covers the versioned state bucket, the
+private Hanko backup bucket, and other Object Storage in the home region. The
+Hanko bucket deletes backups after 30 days and has a `prevent_destroy` guard.
+The [Hanko operations guide](https://github.com/Disease-Prediction-ASET26/disease-prediction-gitops/blob/main/docs/operations/hanko.md)
+covers the backup job, credentials, and restore. The bucket shares the 20 GB
+quota with Terraform state. Monitor its use and preserve required backups before
+removing it.
+
+Other Object Storage in the home region also counts toward the quota. Version history consumes storage. If
 the 20 GB quota is reached, OCI can reject writes, including Terraform state
 updates; review old object versions before the bucket approaches the limit.
 
