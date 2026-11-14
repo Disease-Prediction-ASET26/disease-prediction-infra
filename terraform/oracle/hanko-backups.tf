@@ -1,4 +1,4 @@
-# Hanko backups are stored off-node and expire after 30 days.
+# Hanko backups are stored off-node and expire after seven days.
 data "oci_objectstorage_namespace" "hanko_backups" {
   compartment_id = var.compartment_ocid
 }
@@ -32,7 +32,7 @@ resource "oci_objectstorage_object_lifecycle_policy" "hanko_backups" {
     action      = "DELETE"
     is_enabled  = true
     name        = "expire-hanko-backups"
-    time_amount = 30
+    time_amount = 7
     time_unit   = "DAYS"
     target      = "objects"
   }
