@@ -27,3 +27,18 @@ output "secrets_vault_region" {
   description = "OCI region containing the project secrets Vault."
   value       = var.region
 }
+
+output "email_delivery_dns" {
+  description = "Public DNS records for the OCI generated DKIM selectors."
+  value = {
+    for name, key in oci_email_dkim.sender : name => {
+      name  = key.dns_subdomain_name
+      value = key.cname_record_value
+    }
+  }
+}
+
+output "email_smtp_user_ids" {
+  description = "Non-secret OCI user IDs for manually generating SMTP credentials."
+  value       = { for name, user in oci_identity_user.smtp : name => user.id }
+}
