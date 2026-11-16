@@ -372,8 +372,13 @@ senders and SMTP users for Hanko development, Hanko production and Authelia.
 The senders are `no-reply@mail-dev.pocket-doc.app`,
 `no-reply@mail.pocket-doc.app` and `no-reply@ops-mail.pocket-doc.app`.
 Each user can use approved senders only in its own compartment. OCI generates
-and holds the DomainKeys Identified Mail (DKIM) signing key. No SMTP password
-or imported DKIM private key belongs in Terraform or state.
+and holds the DomainKeys Identified Mail (DKIM) signing key. The Default identity
+domain requires unique primary email addresses, so each SMTP user has the
+corresponding sender address as its primary email. These are not monitored
+mailboxes. The SMTP users have no console password capability and must not rely
+on email account recovery. SMTP access with an unverified primary email must be
+verified when provisioning. No SMTP password or imported DKIM private key belongs
+in Terraform or state.
 
 The current quota policy allows dev 20 messages/day, production 40/day and ops
 10/day, with five messages/minute per compartment in the configured region.

@@ -58,6 +58,7 @@ resource "oci_identity_user" "smtp" {
   compartment_id = var.tenancy_ocid
   name           = "${var.project_name}-smtp-${each.key}"
   description    = "Service identity for ${each.key} SMTP."
+  email          = "no-reply@${each.value.domain}"
 }
 
 resource "oci_identity_user_capabilities_management" "smtp" {
