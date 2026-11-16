@@ -406,7 +406,22 @@ Compartment quotas can take up to ten minutes to take effect.
    terraform output email_smtp_user_ids
    ```
 
-4. In Cloudflare, add each OCI-generated DKIM CNAME using the exact record name
+4. OCI also enables database and OAuth client credential capabilities by default.
+   The pinned Terraform provider cannot set those two flags. From
+   `terraform/oracle`, restrict and verify all seven capabilities for each user:
+
+   ```bash
+   ./scripts/restrict-smtp-capabilities.sh dev
+   ./scripts/restrict-smtp-capabilities.sh prod
+   ./scripts/restrict-smtp-capabilities.sh ops
+   ```
+
+   The script accepts only these three users and checks each user's name before
+   changing capabilities. Repeat this step if a user is recreated. It requires
+   OCI CLI and `jq`, and an IAM identity allowed to update user capabilities.
+   Run it before generating credentials. Terraform does not detect changes to
+   the two unsupported flags; check the script's result during access reviews.
+5. In Cloudflare, add each OCI-generated DKIM CNAME using the exact record name
    and target from `email_delivery_dns`. Set CNAME records to **DNS only**.
    For each sending subdomain, add one SPF TXT record:
 
@@ -420,12 +435,12 @@ Compartment quotas can take up to ten minutes to take effect.
    the policy stricter. Wait for DNS propagation and verify domain and DKIM
    status in OCI. The SPF sender domain and DKIM signature must align with the
    From domain for DMARC; confirm using a received message.
-5. In OCI Identity, generate one SMTP credential for each matching service
+6. In OCI Identity, generate one SMTP credential for each matching service
    user. Copy the generated username and password directly into the project's
    OCI Vault, using the schema in the GitOps Hanko and Authelia operations
    guides. Do not paste them into terminals, Git, Terraform or logs. Do not
    delete the old credentials until the replacement has been verified.
-6. Configure the GitOps consumers and send controlled verification messages.
+7. Configure the GitOps consumers and send controlled verification messages.
    Check delivery, the From address and SPF, DKIM and DMARC results in the
    recipient's message headers. OCI may use its own envelope return-path domain,
    so an SPF pass can be unaligned with the From domain. An aligned DKIM
