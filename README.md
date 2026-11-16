@@ -17,6 +17,7 @@ cluster configuration live in `disease-prediction-gitops`.
   - [Import existing resources before applying](#import-existing-resources-before-applying)
 - [Modify and apply changes](#modify-and-apply-changes)
 - [OCI Vault for Kubernetes secrets](#oci-vault-for-kubernetes-secrets)
+- [Email Delivery](#email-delivery)
 - [Set up private access and check K3s](#set-up-private-access-and-check-k3s)
 - [Replace the VM](#replace-the-vm)
 - [Remove the VM or the full stack](#remove-the-vm-or-the-full-stack)
@@ -363,6 +364,93 @@ guards. Then create and inspect a destroy plan. Apply only if it removes the
 intended Vault, key, dynamic group, and policy, with no VM or network changes.
 OCI may retain scheduled deletions for a waiting period; follow the Vault
 state before removing the resources from Terraform.
+
+## Email Delivery
+
+Terraform defines separate OCI Email Delivery compartments, domains, approved
+senders and SMTP users for Hanko development, Hanko production and Authelia.
+The senders are `no-reply@mail-dev.pocket-doc.app`,
+`no-reply@mail.pocket-doc.app` and `no-reply@ops-mail.pocket-doc.app`.
+Each user can use approved senders only in its own compartment. OCI generates
+and holds the DomainKeys Identified Mail (DKIM) signing key. No SMTP password
+or imported DKIM private key belongs in Terraform or state.
+
+The current quota policy allows dev 20 messages/day, production 40/day and ops
+10/day, with five messages/minute per compartment in the configured region.
+These limits block legitimate mail as well as abuse when reached. They do not
+cap other compartments, recipient-level abuse, monthly messages or costs.
+OCI's published free allowance differs between pages; check billing and other
+usage before relying on it. The existing OCI budget is an alert, not a cap.
+Compartment quotas can take up to ten minutes to take effect.
+
+### Set up and preview
+
+1. Check OCI for existing matching compartments, users, groups, domains,
+   approved senders and quota policies. Import any matching resources before
+   applying to avoid duplicates. DNS for `pocket-doc.app` is managed by
+   Cloudflare, not by this Terraform configuration.
+2. From `terraform/oracle`, run the normal format, validation and saved-plan
+   commands in [Modify and apply changes](#modify-and-apply-changes). Confirm
+   the plan adds only the intended Email Delivery resources and does not
+   replace the VM, network, Vault or backups.
+3. Apply the reviewed plan. From `terraform/oracle`, obtain the public DNS
+   records and user IDs:
+
+   ```bash
+   terraform output email_delivery_dns
+   terraform output email_smtp_user_ids
+   ```
+
+4. In Cloudflare, add each OCI-generated DKIM CNAME using the exact record name
+   and target from `email_delivery_dns`. Set CNAME records to **DNS only**.
+   For each sending subdomain, add one SPF TXT record:
+
+   ```text
+   v=spf1 include:eu.rp.oracleemaildelivery.com ~all
+   ```
+
+   Add a DMARC TXT record at `_dmarc.<sending-subdomain>`, starting with
+   `v=DMARC1; p=none`. Check existing records before adding them: do not create
+   multiple SPF records at the same name. Review DMARC results before making
+   the policy stricter. Wait for DNS propagation and verify domain and DKIM
+   status in OCI. The SPF sender domain and DKIM signature must align with the
+   From domain for DMARC; confirm using a received message.
+5. In OCI Identity, generate one SMTP credential for each matching service
+   user. Copy the generated username and password directly into the project's
+   OCI Vault, using the schema in the GitOps Hanko and Authelia operations
+   guides. Do not paste them into terminals, Git, Terraform or logs. Do not
+   delete the old credentials until the replacement has been verified.
+6. Configure the GitOps consumers and send controlled verification messages.
+   Check delivery, the From address and SPF, DKIM and DMARC results in the
+   recipient's message headers. OCI may use its own envelope return-path domain,
+   so an SPF pass can be unaligned with the From domain. An aligned DKIM
+   signature can satisfy DMARC. Check quota and bounce metrics. A healthy SMTP
+   connection alone does not establish delivery.
+
+OCI's generated SMTP passwords are shown only once. Store them as Vault secret
+versions and rotate them before deleting the old credential. Each user supports
+at most two SMTP credentials. Hanko environment variables require a controlled
+rollout after a Vault secret refresh; follow the GitOps operations guide.
+
+### Modify or remove
+
+Edit sender domains and limits in `terraform/oracle/email-delivery.tf`; changing
+a sender or domain can interrupt delivery and may require new DNS records and
+credentials. Preview and review the plan before apply. OCI sending quotas apply
+to the compartment, and an exhausted quota will block mail until it resets or
+is raised. Check OCI delivery failures, suppressions and quota usage when
+troubleshooting. Keep alerting independent of this email path.
+
+To remove Email Delivery, first migrate all consumers and verify their new
+sender, preserve required records and remove credentials from Vault. Review a
+plan that removes the desired Terraform email resources, then apply it.
+Compartments have `enable_delete = false`; OCI retains them unless deliberately
+changed after they are empty. Remove their DNS records only after mail no longer
+uses them. Keep unrelated Terraform resources and the remote state bucket.
+
+Sources: [OCI Email Delivery setup](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/gettingstarted.htm),
+[SPF records](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/configurespf.htm),
+[compartment quotas](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/compartment-quotas.htm).
 
 ## Set up private access and check K3s
 
