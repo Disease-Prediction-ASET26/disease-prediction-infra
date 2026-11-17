@@ -434,12 +434,12 @@ Compartment quotas can take up to ten minutes to take effect.
    sender's From domain, enforce the policy with
    `v=DMARC1; p=reject; pct=100`, preserving any reporting tags already in the
    record. Apply and verify the policy separately for each sending subdomain.
-   The development sender currently uses `p=reject; pct=100`; production and
-   ops still use `p=none`. Check existing records before adding them: do not
-   create multiple SPF or DMARC records at the same name. Wait for DNS
-   propagation and verify domain and DKIM status in OCI. The SPF sender domain
-   and DKIM signature must align with the From domain for DMARC; confirm using
-   a received message.
+   All three configured sender domains currently use
+   `p=reject; pct=100`. Check existing records before adding them: do not create
+   multiple SPF or DMARC records at the same name. Wait for DNS propagation and
+   verify domain and DKIM status in OCI. The SPF sender domain and DKIM
+   signature must align with the From domain for DMARC; confirm using a
+   received message.
 6. In OCI Identity, generate one SMTP credential for each matching service
    user. Copy the generated username and password directly into the project's
    OCI Vault, using the schema in the GitOps Hanko and Authelia operations
